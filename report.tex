@@ -1,0 +1,102 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[hmargin=25mm,vmargin=23mm]{geometry}
+\usepackage{amsmath,booktabs}
+\usepackage[hidelinks]{hyperref}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{5pt}
+\begin{document}
+\begin{center}
+{\small ADVANCED DATA STRUCTURES AND ALGORITHM ANALYSIS}\\[6pt]
+{\LARGE Project 5: Huffman Codes}\\[5pt]
+{\large Algorithm, verification, and performance report}
+\end{center}
+\hrule
+\vspace{7pt}
+Group number: \rule{18mm}{0.4pt}\\
+{\small You Longbin (3250106392), Huang Yirui (3250104426), Chen Zhikun (3250100883)}
+
+\section{Chapter 1: Problem and algorithm}
+A submission assigns a nonempty bit string to each of $N$ symbols with frequencies $f_i$. For each of the $M$ submissions, print \texttt{Yes} if the assigned strings are prefix-free and minimize
+\[
+W=\sum_{i=1}^{N}f_i\,|s_i|.
+\]
+The code strings may differ from any particular output of the Huffman algorithm. The verifier therefore computes the optimal cost once and checks both the cost and the prefix property of each submission.
+
+\textbf{Minimum cost.} Put the symbol frequencies in a binary min-heap. Repeatedly pop the two smallest weights, add their sum to the running cost, and push the sum back. For two minimum-weight leaves, an optimal full binary tree can be chosen in which they are siblings at maximum depth. Exchanging a lighter leaf with a heavier leaf at greater depth cannot increase the weighted depth. Contracting the sibling pair reduces the problem by one symbol and reduces its cost by the sum of the two frequencies. Induction proves the merge procedure is optimal. Unary internal nodes can be contracted without increasing cost, so restricting the minimum-cost computation to full trees is sufficient even if some weights are zero.
+
+\textbf{Prefix check.} Store earlier strings in a binary trie. Finding a terminal before the new string ends means an earlier string prefixes it. At the last bit, an existing terminal signals a duplicate, and an existing child signals that the new string prefixes an earlier one. If none of these conditions occurs, inserting the new terminal preserves the prefix property.
+
+\textbf{Correctness.} The symbol lookup ensures each original symbol has exactly one binary code. The trie accepts exactly the prefix-free sets. Among those sets, the weighted-length comparison accepts exactly the sets that attain the optimal cost.
+
+\section{Chapter 2: Implementation and comparison}
+The implementation is in \texttt{huffman.c}. It caches code lengths, looks up frequencies by symbol, and consumes all $N$ input rows even when a submission has already failed validation. A candidate with a mismatched weighted cost skips the prefix check in both builds.
+
+Let $L$ denote the maximum code length and $S$ the sum of lengths for one submission. The heap construction by insertion and all merges take $O(N\log N)$ time and $O(N)$ space. Reading and validating a submission take $O(S)$ time. The trie variant uses $O(S)$ time for its prefix check and at most $1+NL=3970$ node slots. It initializes only nodes that it creates. The weighted cost is at most $63\cdot1000\cdot63=3{,}969{,}000$, which fits in a 32-bit signed integer on the tested compiler.
+
+The \texttt{PAIRWISE} build uses the same input parsing and optimal-cost calculation. Its prefix check compares each pair for equality over the shorter length, taking $O(N^2L)$ worst-case time and constant auxiliary space beyond the input buffers. This comparison isolates the prefix-check strategy.
+
+\clearpage
+\section{Chapter 3: Test report}
+\begin{tabular}{@{}p{.35\linewidth}rrl@{}}
+\toprule
+Test group & Inputs & Submissions & Both builds \\
+\midrule
+Official PTA example & 1 & 4 & Pass \\
+Weighted length and malformed mapping & 1 & 6 & Pass \\
+Prefix order and length 63 & 1 & 3 & Pass \\
+Zero weight, non-full optimal trie & 1 & 1 & Pass \\
+Random small cases & 120 & 2400 & Pass \\
+Maximum-size batch & 1 & 1000 & Pass \\
+\midrule
+Total & 125 & 3414 & Pass \\
+\bottomrule
+\end{tabular}
+
+The official example checks two accepted codebooks and two rejected ones. The fixed tests also cover shuffled symbols, duplicate codes, repeated symbols, an expensive prefix-free code, both directions of a prefix conflict, and the 63-bit boundary. For the two directional prefix conflicts the frequencies are zero, so a correct cost check alone cannot reject them. A zero-weight 63-bit code alongside a one-bit positive-weight code also verifies that an optimal trie can contain unary nodes.
+
+For random $N=2$ to $7$, the test oracle enumerates all unordered root partitions of the symbol subset and memoizes the minimum cost of each subset. For a subset $T$ with at least two leaves, the recurrence is
+\[
+C(T)=\sum_{i\in T}f_i + \min_{A\subset T,\;0<|A|<|T|}
+\bigl(C(A)+C(T\setminus A)\bigr).
+\]
+The singleton cost is zero. A separate lexical-sort check finds prefix conflicts by examining adjacent strings. The oracle verifies the complete output of both C builds on flipped, shuffled, and mutated codebooks. The largest test uses all 63 symbols at frequency 1000 and 1000 optimal submissions.
+
+\clearpage
+\section{Chapter 4: Performance and conclusions}
+\begin{tabular}{@{}rlrr@{}}
+\toprule
+Symbols & Batch of 1000 & Trie (ms) & Pairwise (ms)\\
+\midrule
+8 & All valid & 15.893 & 15.211\\
+8 & Half duplicates & 16.163 & 15.680\\
+32 & All valid & 22.305 & 23.751\\
+32 & Half duplicates & 25.929 & 26.950\\
+63 & All valid & 32.032 & 39.040\\
+63 & Half duplicates & 30.338 & 33.467\\
+\bottomrule
+\end{tabular}
+
+Windows, GCC 15.2.0, C99, \texttt{-O2}. For each condition, the same input is passed to both builds. Invalid entries duplicate a code of equal length so that the weighted cost is unchanged. The experiment alternates run order, discards one warm-up per build, and reports the median of ten runs. Timings include process startup, I/O, and output comparison in the harness.
+
+The pairwise scan was slightly faster at $N=8$ on this machine. At $N=63$ with all entries valid, the trie took about 18\% less elapsed time. With duplicate codes, a pairwise scan can stop before testing all pairs, and the measured gap narrows. These whole-program measurements depend on startup overhead and the chosen batches. The trie is the default because it scales linearly with the total code length.
+
+\subsection*{References}
+PTA, \emph{ZJU ADS Project 5, problem 8-1: Huffman Codes}.\\
+D. A. Huffman, \emph{A Method for the Construction of Minimum-Redundancy Codes}, 1952.
+
+\subsection*{Appendix: Reproduction}
+Compile the default trie build as shown below.
+With Python 3.10+ and GCC on the path, run:
+\begin{verbatim}
+gcc -std=c99 -O2 huffman.c -o huffman.exe
+python test_huffman.py
+python test_huffman.py --benchmark
+\end{verbatim}
+The second command also refreshes \texttt{benchmark.csv}.
+\end{document}
+
+
+
+
+
+

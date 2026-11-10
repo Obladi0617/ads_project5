@@ -1,0 +1,13 @@
+symbols,scenario,variant,median_ms
+8,all_valid,trie,15.893
+8,all_valid,pairwise,15.211
+8,mixed,trie,16.163
+8,mixed,pairwise,15.680
+32,all_valid,trie,22.305
+32,all_valid,pairwise,23.751
+32,mixed,trie,25.929
+32,mixed,pairwise,26.950
+63,all_valid,trie,32.032
+63,all_valid,pairwise,39.040
+63,mixed,trie,30.338
+63,mixed,pairwise,33.467
