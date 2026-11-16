@@ -1,0 +1,6 @@
+mutation,result,first_counterexample
+omit_optimal_cost,killed,PTA sample
+omit_duplicate_terminal,killed,weighted and prefix edge cases
+omit_existing_prefix,killed,weighted and prefix edge cases
+omit_new_prefix,killed,PTA sample
+omit_symbol_uniqueness,killed,weighted and prefix edge cases

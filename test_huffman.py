@@ -109,6 +109,12 @@ G 11
         list(zip("0122", ["0", "10", "110", "111"])),
     ]
     yield "weighted and prefix edge cases", encode(w, entries), ["Yes", "Yes", "No", "No", "No", "No"]
+    # Optimal cost is 250. After forced merges 11+12 and 13+14,
+    # Huffman must merge 23+24; this tree instead pairs 23 with 26.
+    w = [26, 24, 14, 13, 12, 11]
+    entries = [list(zip("012345", ["00", "10", "110", "111", "010", "011"]))]
+    assert expected(w, entries[0]) == "Yes"
+    yield "optimal tree outside Huffman merge choices", encode(w, entries), ["Yes"]
     w = [0, 0]
     entries = [[("0", "0" * 63), ("1", "0")],
                [("0", "0"), ("1", "0" * 63)],
