@@ -4,3 +4,8 @@ omit_duplicate_terminal,killed,weighted and prefix edge cases
 omit_existing_prefix,killed,weighted and prefix edge cases
 omit_new_prefix,killed,PTA sample
 omit_symbol_uniqueness,killed,weighted and prefix edge cases
+interval_reject_adjacent,killed,PTA sample
+interval_reverse_sort,killed,PTA sample
+packed_wrong_overlap,killed,PTA sample
+sorted_omit_right_neighbor,killed,random 3
+wrong_merge_cost,killed,PTA sample

@@ -29,7 +29,7 @@ The code strings may differ from any particular output of the Huffman algorithm.
 \textbf{Correctness.} The symbol lookup ensures each original symbol has exactly one binary code. The trie accepts exactly the prefix-free sets. Among those sets, the weighted-length comparison accepts exactly the sets that attain the optimal cost.
 
 \section{Chapter 2: Implementation and comparison}
-The implementation is in \texttt{huffman.c}. It caches code lengths, looks up frequencies by symbol, and consumes all $N$ input rows even when a submission has already failed validation. A candidate with a mismatched weighted cost skips the prefix check in all three builds.
+The implementation is in \texttt{huffman.c}. It caches code lengths, looks up frequencies by symbol, and consumes all $N$ input rows even when a submission has already failed validation. A candidate with a mismatched weighted cost skips the prefix check in all five builds.
 
 Let $L$ denote the maximum code length and $S$ the sum of lengths for one submission. The heap construction by insertion and all merges take $O(N\log N)$ time and $O(N)$ space. Reading and validating a submission take $O(S)$ time. The trie variant uses $O(S)$ time for its prefix check and at most $1+NL=3970$ node slots. It initializes only nodes that it creates. The weighted cost is at most $63\cdot1000\cdot63=3{,}969{,}000$, which fits in a 32-bit signed integer on the tested compiler.
 
@@ -42,10 +42,16 @@ The third build, \texttt{INTERVAL}, converts a string of length $l$ and binary v
 An extension of a code occupies a subinterval of that code's interval. Dyadic intervals either are disjoint or contain one another, so a prefix conflict is exactly an overlap. Sorting by the left endpoint and checking adjacent intervals detects any overlap, including duplicate codes. The unsigned 64-bit exclusive endpoint can equal $2^{63}$ without overflowing. Total time is $O(S+N\log N)$ and auxiliary space is $O(N)$.
 
 
+The \texttt{PACKED} build compares the dyadic intervals pairwise using unsigned integer inequalities. It costs $O(S+N^2)$ time and $O(N)$ auxiliary space. It avoids repeatedly scanning shared string prefixes, but performs many comparisons when all codes are valid.
+
+The \texttt{SORTED} build constructs the same intervals and inserts them into a sorted array. Because previous intervals are disjoint, a new interval can overlap only its immediate neighbors after insertion. It returns early on a conflict, without the callback overhead of \texttt{qsort}. Worst-case time is $O(S+N^2)$ and space is $O(N)$. Already sorted input needs no shifts, while reverse order exposes the quadratic shifting cost.
+
+The Trie now uses \texttt{uint16\_t} child indices, which cover its maximum 3970 nodes. On the tested compiler its node occupies 6 bytes instead of the original 12 bytes, reducing the fixed node-array capacity from 47,640 to 23,820 bytes. Input validation uses one \texttt{strspn} scan for binary validity and code length. It still consumes every row before rejecting an entry. Duplicate symbols in the initial alphabet are rejected.
+
 \section{Chapter 3: Test report}
 \begin{tabular}{@{}p{.35\linewidth}rrl@{}}
 \toprule
-Test group & Inputs & Submissions & Three builds \\
+Test group & Inputs & Submissions & Five builds \\
 \midrule
 Official PTA example & 1 & 4 & Pass \\
 Weighted length and malformed mapping & 1 & 6 & Pass \\
@@ -55,8 +61,11 @@ Random small cases & 120 & 2400 & Pass \\
 Maximum-size batch & 1 & 1000 & Pass \\
 Optimal non-Huffman tree & 1 & 1 & Pass \\
 Long-prefix and late-conflict cases & 1 & 5 & Pass \\
+Exhaustive codebooks & 8 & 1648 & Pass \\
+Metamorphic transforms & 8 & 16 & Pass \\
+Malformed rows and alignment & 1 & 4 & Pass \\
 \midrule
-Total & 127 & 3420 & Pass \\
+Total & 144 & 5088 & Pass \\
 \bottomrule
 \end{tabular}
 
@@ -67,9 +76,11 @@ For random $N=2$ to $7$, the test oracle enumerates all unordered root partition
 C(T)=\sum_{i\in T}f_i + \min_{A\subset T,\;0<|A|<|T|}
 \bigl(C(A)+C(T\setminus A)\bigr).
 \]
-The singleton cost is zero. A separate lexical-sort check finds prefix conflicts by examining adjacent strings. The oracle verifies the complete output of all three C builds on flipped, shuffled, and mutated codebooks. The largest test uses all 63 symbols at frequency 1000 and 1000 optimal submissions.
+The singleton cost is zero. A separate lexical-sort check finds prefix conflicts by examining adjacent strings. The oracle verifies the complete output of all five C builds on flipped, shuffled, and mutated codebooks. The largest test uses all 63 symbols at frequency 1000 and 1000 optimal submissions.
 
 
+
+Exhaustive cases enumerate all $14^2$ ordered pairs of nonempty codes of length at most 3, and all $6^3$ ordered triples of codes of length at most 2. Each family is tested with zero, equal, ascending and descending frequency vectors, including duplicates. This covers 1648 submissions using the independent optimal-cost oracle. Eight additional metamorphic inputs flip every bit, reverse row order and scale every weight by two for $N=2,7,31,63$. Invalid-bit and unknown-symbol rows followed by a valid submission check that input remains aligned.
 
 \subsection*{A valid optimum outside Huffman merge choices}
 Use frequencies $(26,24,14,13,12,11)$ for symbols \texttt{012345} and the codes
@@ -79,7 +90,7 @@ Use frequencies $(26,24,14,13,12,11)$ for symbols \texttt{012345} and the codes
 They are prefix-free with weighted length $2(26+24)+3(14+13+12+11)=250$. The independent subset oracle confirms that 250 is optimal. Huffman must first combine $11+12=23$, then $13+14=27$. Its next step must combine 23 with 24. This code tree instead makes the weight-23 subtree a sibling of weight 26, so this particular tree cannot be produced by Huffman's merge choices. All three verifier builds accept it.
 
 \subsection*{Targeted mutation testing}
-The mutation runner compiles five separate incorrect versions of the default Trie verifier. Each change removes one check while retaining the remaining implementation. All five mutations were detected by an output mismatch. Compilation failures do not count as detection.
+The mutation runner compiles five separate incorrect versions of the Trie verifier. Each change removes one check while retaining the remaining implementation. These five mutations were detected by an output mismatch. Compilation failures do not count as detection.
 
 \begin{tabular}{@{}p{.43\linewidth}p{.48\linewidth}@{}}
 \toprule
@@ -93,48 +104,51 @@ Symbol uniqueness & Repeated symbol with distinct optimal-length codes\\
 \bottomrule
 \end{tabular}
 
-Two additional witnesses use frequencies $(1,1)$ and respectively assign \texttt{0,1} to the same symbol, or \texttt{0,0} to distinct symbols. Both have optimal weighted length 2 but must be rejected. The mutation runner also checks these two witnesses against all three correct builds. Zero-weight cases in the shared suite force both directional prefix mutations past the weighted-cost filter. The score is 5/5 for this explicitly selected set of faults; it does not establish coverage of arbitrary implementation errors.
+Two additional witnesses use frequencies $(1,1)$ and respectively assign \texttt{0,1} to the same symbol, or \texttt{0,0} to distinct symbols. Both have optimal weighted length 2 but must be rejected. The mutation runner also checks these two witnesses against all five correct builds. Zero-weight cases in the shared suite force both directional prefix mutations past the weighted-cost filter. Five additional mutations target interval adjacency, reversed interval sorting, incorrect packed overlap, missing right-neighbor insertion checks and wrong Huffman merge costs. All ten are detected. The score is 10/10 for this explicitly selected set of faults; it does not establish coverage of arbitrary implementation errors.
 
 \clearpage
 \section{Chapter 4: Performance and conclusions}
-\textbf{Whole-program measurements (milliseconds).} Each batch contains 1000 submissions. All builds use the same parsing, cost computation and early rejection conditions.
+\textbf{Whole-program measurements (milliseconds).} Every batch contains 1000 submissions. All five builds share the same parser, minimum-cost calculation and weighted-cost filter.
 
-\begin{tabular}{@{}rlrrr@{}}
+{\small
+\begin{tabular}{@{}rlrrrrr@{}}
 \toprule
-$N$ & Input & Trie & Pairwise & Interval\\
+$N$ & Input & Trie & Pairwise & Interval & Packed & Sorted\\
 \midrule
-8 & all valid & 53.672 & 54.992 & 61.717\\
-8 & mixed & 57.393 & 64.943 & 60.465\\
-32 & all valid & 56.523 & 58.755 & 58.054\\
-32 & mixed & 57.932 & 60.302 & 60.181\\
-63 & all valid & 72.719 & 78.234 & 66.194\\
-63 & mixed & 62.875 & 64.080 & 64.216\\
+8 & all valid & 33.041 & 34.312 & 33.921 & 33.025 & 32.141\\
+8 & mixed & 34.785 & 32.625 & 33.688 & 33.166 & 32.951\\
+32 & all valid & 36.123 & 37.359 & 36.460 & 36.691 & 37.421\\
+32 & mixed & 37.300 & 37.135 & 37.107 & 36.524 & 36.915\\
+63 & all valid & 43.138 & 48.202 & 41.784 & 42.925 & 42.305\\
+63 & mixed & 39.762 & 41.591 & 42.205 & 41.794 & 40.946\\
 \bottomrule
 \end{tabular}
+}
 
-Windows, GCC 15.2.0, C99, \texttt{-O2}. Alternating the three variants' order reduces systematic ordering effects. One warm-up is discarded per build; the median of ten runs includes process startup, I/O and Python output validation. These values supersede the earlier two-version measurements and depend on machine load.
+Windows, GCC 15.2.0, C99, \texttt{-O2}. The driver rotates the five variants' run order, discards one warm-up per build and reports the median of ten runs. These timings include process startup, input/output and Python result checking. They are refreshed after the input-scan optimization and supersede earlier measurements. The small differences must be interpreted against machine load and startup overhead.
 
-\textbf{Prefix-check measurements (nanoseconds per call).} The C harness reads each codebook before starting QueryPerformanceCounter. It executes 100 warm-ups followed by 20,000 calls through a volatile function pointer, retaining a volatile accepted count. The Python driver checks that count and reports the median of seven batches with rotated run order. Input parsing, process startup, weighted-cost filtering and Python verification are excluded from this timer.
+\textbf{Prefix-check measurements (nanoseconds per call, $N=63$).}
 
-\begin{tabular}{@{}rlrrr@{}}
+{\small
+\begin{tabular}{@{}rlrrrrr@{}}
 \toprule
-$N$ & Input & Trie & Pairwise & Interval\\
+$N$ & Input & Trie & Pairwise & Interval & Packed & Sorted\\
 \midrule
-8 & short valid & 38.415 & 74.755 & 55.805\\
-8 & long valid & 1090.480 & 144.665 & 247.565\\
-8 & late duplicate & 1065.325 & 145.455 & 262.070\\
-32 & short valid & 320.135 & 1271.920 & 303.660\\
-32 & long valid & 4176.090 & 2073.900 & 988.045\\
-32 & late duplicate & 4140.985 & 2101.000 & 1006.665\\
-63 & short valid & 725.670 & 4401.615 & 704.730\\
-63 & long valid & 8181.230 & 6888.160 & 2099.930\\
-63 & late duplicate & 8207.365 & 6995.660 & 2120.475\\
+63 & short valid & 690.110 & 4438.235 & 718.300 & 1029.460 & 186.835\\
+63 & long valid & 8332.380 & 6912.740 & 2104.880 & 2374.715 & 1539.570\\
+63 & late duplicate & 7980.480 & 7265.940 & 2193.380 & 2375.105 & 1610.545\\
+63 & reverse long & 8272.145 & 7017.735 & 2337.485 & 2007.805 & 1981.645\\
+63 & unequal valid & 3942.215 & 4835.890 & 1352.940 & 1519.080 & 795.925\\
+63 & early duplicate & 297.755 & 4.950 & 2073.115 & 53.565 & 53.480\\
 \bottomrule
 \end{tabular}
+}
 
-Short valid strings have equal lengths $\lceil\log_2N\rceil$. Long strings prepend zeros to reach 63 bits. Late-duplicate cases replace the final string with its predecessor, keeping code lengths unchanged. These synthetic long codebooks are useful for isolating the checker; they need not be optimal for strictly positive frequencies. The zero-frequency regression inputs exercise such codebooks through the complete verifier.
+The C harness reads each codebook before starting QueryPerformanceCounter. It performs 100 warm-ups and 20,000 timed calls through a volatile function pointer, retaining a volatile accepted count checked by Python. Seven batches with rotated order yield the median. Parsing, startup, weighted-cost calculation and Python verification are outside this timer. The CSV includes minimum/maximum batch means and results for $N=8,32,63$, totaling 90 rows.
 
-The results show that the best strategy depends on input shape. Trie traversal benefits short codebooks and avoids all-pairs comparison. Interval sorting processes each code once before sorting and performs well on long common prefixes. Pairwise comparison can be competitive for small alphabets because library comparisons are cheap. The default remains Trie for its linear worst-case bound in total code length. The interval build provides a compact alternative, with the extra $N\log N$ sorting term. No universal speed ranking follows from these small, machine-dependent measurements.
+Short valid strings have equal lengths $\lceil\log_2N\rceil$. Long strings prepend zeros to reach 63 bits. Duplicate cases repeat a code at the end or beginning. Reverse-long cases reverse insertion order. Unequal-length cases use a full comb-shaped prefix tree. Long synthetic codebooks isolate checker behavior; their use with positive frequencies is not assumed optimal. Zero-frequency complete-verifier tests exercise them without cost-filter rejection.
+
+Insertion sorting is especially effective on the already ordered codebooks, but has extra shifts in reverse order. Packed pairwise checks avoid long string comparisons but retain quadratic pair counts. Early duplicate discovery strongly favors methods that can reject immediately. Compact Trie remains the default for its $O(S)$ prefix-check bound and predictable behavior. The alternatives make the constant-factor and input-order tradeoffs explicit. Whole-program timings provide the practical limit on interpreting isolated speedups.
 
 \subsection*{References}
 PTA, \emph{ZJU ADS Project 5, problem 8-1: Huffman Codes}.\\
@@ -152,7 +166,7 @@ python benchmark_prefix.py
 python test_mutations.py
 \end{verbatim}
 The third command also refreshes \texttt{benchmark.csv}.
-Compile with \texttt{-DPAIRWISE} or \texttt{-DINTERVAL} for the alternative checkers.
+Compile with \texttt{-DPAIRWISE}, \texttt{-DINTERVAL}, \texttt{-DPACKED} or \texttt{-DSORTED} for the alternative checkers.
 The prefix harness uses Windows QueryPerformanceCounter and requires Windows; the verifier and correctness tests use standard C99 and Python.
 
 The mutation outcomes and their first counterexamples are recorded in \texttt{mutation\_results.csv}.

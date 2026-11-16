@@ -1,6 +1,7 @@
 import csv
 import functools
 import heapq
+import itertools
 import os
 from pathlib import Path
 import random
@@ -12,6 +13,7 @@ import tempfile
 import time
 
 ROOT = Path(__file__).resolve().parent
+VARIANTS = ["trie", "pairwise", "interval", "packed", "sorted"]
 SYMBOLS = string.digits + string.ascii_lowercase + string.ascii_uppercase + "_"
 
 
@@ -146,6 +148,30 @@ G 11
     long_valid = list(zip(SYMBOLS, ["0" * 57 + format(i, "06b") for i in range(63)]))
     entries.extend([long_valid, list(reversed(long_valid))])
     yield "max trie depth and long shared prefix", encode(w, entries), ["Yes", "No", "No", "Yes", "Yes"]
+    # Enumerate every small codebook, including repeated codes.
+    for n, max_length in [(2, 3), (3, 2)]:
+        words = [format(v, f"0{length}b")
+                 for length in range(1, max_length + 1) for v in range(1 << length)]
+        entries = [list(zip(SYMBOLS[:n], codes))
+                   for codes in itertools.product(words, repeat=n)]
+        for weights in [[0] * n, [1] * n, list(range(1, n + 1)), list(range(n, 0, -1))]:
+            yield f"exhaustive n={n} weights={weights}", encode(weights, entries), [
+                expected(weights, entry) for entry in entries]
+    # Scale weights and permute every code bit and symbol row without changing validity.
+    for n in [2, 7, 31, 63]:
+        weights = [1 + (i * 37) % 500 for i in range(n)]
+        valid = reference_codes(weights)
+        permuted = [(c, code.translate(str.maketrans("01", "10")))
+                    for c, code in reversed(valid)]
+        yield f"metamorphic n={n}", encode(weights, [valid, permuted]), ["Yes", "Yes"]
+        yield f"scaled weights n={n}", encode([2 * w for w in weights], [valid, permuted]), ["Yes", "Yes"]
+    malformed = [
+        [("0", "02"), ("1", "1")],
+        [("0", "0"), ("x", "1")],
+        [("0", "0"), ("1", "10x")],
+        [("0", "0"), ("1", "1")],
+    ]
+    yield "binary validation and input alignment", encode([1, 1], malformed), ["No", "No", "No", "Yes"]
     w = [1000] * 63
     yield "max symbols and submissions", encode(w, [reference_codes(w)] * 1000), ["Yes"] * 1000
 
@@ -176,13 +202,13 @@ def benchmark(exes):
             data = encode(w, [invalid if scenario == "mixed" and i % 2 else valid
                               for i in range(1000)])
             want = ["No" if scenario == "mixed" and i % 2 else "Yes" for i in range(1000)]
-            timings = [[], [], []]
+            timings = [[] for _ in VARIANTS]
             for i in range(11):
-                for j in [(i + offset) % 3 for offset in range(3)]:
+                for j in [(i + offset) % len(VARIANTS) for offset in range(len(VARIANTS))]:
                     start = time.perf_counter_ns()
                     assert run(exes[j], data) == want
                     timings[j].append((time.perf_counter_ns() - start) / 1e6)
-            for name, times in zip(["trie", "pairwise", "interval"], timings):
+            for name, times in zip(VARIANTS, timings):
                 rows.append([n, scenario, name, f"{statistics.median(times[1:]):.3f}"])
     with (ROOT / "benchmark.csv").open("w", newline="") as file:
         writer = csv.writer(file)
@@ -192,7 +218,7 @@ def benchmark(exes):
 
 if __name__ == "__main__":
     with tempfile.TemporaryDirectory(dir=ROOT) as directory:
-        exes = [build(Path(directory), mode) for mode in ["trie", "pairwise", "interval"]]
+        exes = [build(Path(directory), mode) for mode in VARIANTS]
         files = submissions = 0
         for name, data, want in cases():
             for exe in exes:
@@ -200,7 +226,7 @@ if __name__ == "__main__":
                 assert got == want, (name, exe.name, got, want)
             files += 1
             submissions += len(want)
-        print(f"{files} inputs, {submissions} submissions passed for all three versions.")
+        print(f"{files} inputs, {submissions} submissions passed for all five versions.")
         if "--benchmark" in sys.argv:
             benchmark(exes)
 

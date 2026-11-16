@@ -55,18 +55,20 @@ static int optimal_cost(MinHeap *heap)
     return cost;
 }
 
-#if defined(INTERVAL)
+#if defined(INTERVAL) || defined(SORTED) || defined(PACKED)
 typedef struct {
     uint64_t start;
     uint64_t end;
 } CodeInterval;
 
+#if defined(INTERVAL)
 static int compare_intervals(const void *left, const void *right)
 {
     const CodeInterval *a = left;
     const CodeInterval *b = right;
     return (a->start > b->start) - (a->start < b->start);
 }
+#endif
 
 static bool prefix_free(char codes[][MAX_BITS + 1], const size_t lengths[], int n)
 {
@@ -76,15 +78,39 @@ static bool prefix_free(char codes[][MAX_BITS + 1], const size_t lengths[], int 
         for (size_t j = 0; j < lengths[i]; ++j)
             value = (value << 1) | (uint64_t)(codes[i][j] - '0');
         unsigned shift = MAX_BITS - (unsigned)lengths[i];
-        intervals[i].start = value << shift;
+        CodeInterval current;
+        current.start = value << shift;
         /* The exclusive endpoint can equal 2^63, which fits in uint64_t. */
-        intervals[i].end = (value + UINT64_C(1)) << shift;
+        current.end = (value + UINT64_C(1)) << shift;
+#if defined(SORTED)
+        /* Keep disjoint intervals sorted while inserting; only neighbors can overlap. */
+        int position = i;
+        while (position > 0 && intervals[position - 1].start > current.start) {
+            intervals[position] = intervals[position - 1];
+            --position;
+        }
+        if ((position > 0 && current.start < intervals[position - 1].end) ||
+            (position < i && intervals[position].start < current.end))
+            return false;
+        intervals[position] = current;
+#elif defined(PACKED)
+        /* Compare intervals with fixed-width operations rather than string scans. */
+        for (int j = 0; j < i; ++j) {
+            if (current.start < intervals[j].end && intervals[j].start < current.end)
+                return false;
+        }
+        intervals[i] = current;
+#else
+        intervals[i] = current;
+#endif
     }
+#if defined(INTERVAL)
     qsort(intervals, (size_t)n, sizeof intervals[0], compare_intervals);
     for (int i = 1; i < n; ++i) {
         if (intervals[i].start < intervals[i - 1].end)
             return false;
     }
+#endif
     return true;
 }
 #elif defined(PAIRWISE)
@@ -101,8 +127,9 @@ static bool prefix_free(char codes[][MAX_BITS + 1], const size_t lengths[], int 
     return true;
 }
 #else
+/* At most 3970 nodes; 16-bit child indices reduce the working set. */
 typedef struct {
-    int children[2];
+    uint16_t children[2];
     bool terminal;
 } TrieNode;
 
@@ -151,7 +178,10 @@ int main(void)
         int weight;
         if (scanf(" %c %d", &symbol, &weight) != 2 || weight < 0 || weight > 1000)
             return 1;
-        weights[(unsigned char)symbol] = weight;
+        unsigned char key = (unsigned char)symbol;
+        if (weights[key] >= 0)
+            return 1;
+        weights[key] = weight;
         push(&heap, weight);
     }
     int optimum = optimal_cost(&heap);
@@ -172,9 +202,10 @@ int main(void)
             if (scanf(" %c %63s", &symbol, codes[i]) != 2)
                 return 1;
             unsigned char key = (unsigned char)symbol;
-            lengths[i] = strlen(codes[i]);
+            /* strspn yields the full length exactly when the token is binary. */
+            lengths[i] = strspn(codes[i], "01");
             if (weights[key] < 0 || seen[key] ||
-                strspn(codes[i], "01") != lengths[i]) {
+                codes[i][lengths[i]] != '\0') {
                 valid = false;
             } else {
                 cost += weights[key] * (int)lengths[i];

@@ -3,7 +3,7 @@ import csv
 import subprocess
 import tempfile
 from pathlib import Path
-from test_huffman import ROOT, build, cases, run
+from test_huffman import ROOT, VARIANTS, build, cases, run
 
 MUTATIONS = {
     "omit_optimal_cost": ("cost == optimum", "optimum >= 0"),
@@ -15,6 +15,21 @@ MUTATIONS = {
         "trie[node].terminal || trie[node].children[0] || trie[node].children[1]",
         "trie[node].terminal"),
     "omit_symbol_uniqueness": ("weights[key] < 0 || seen[key] ||", "weights[key] < 0 ||"),
+}
+EXTRA_MUTATIONS = {
+    "interval_reject_adjacent": ("INTERVAL",
+        "intervals[i].start < intervals[i - 1].end",
+        "intervals[i].start <= intervals[i - 1].end"),
+    "interval_reverse_sort": ("INTERVAL",
+        "(a->start > b->start) - (a->start < b->start)",
+        "(a->start < b->start) - (a->start > b->start)"),
+    "packed_wrong_overlap": ("PACKED",
+        "current.start < intervals[j].end && intervals[j].start < current.end",
+        "current.start < intervals[j].end || intervals[j].start < current.end"),
+    "sorted_omit_right_neighbor": ("SORTED",
+        "(position < i && intervals[position].start < current.end)", "false"),
+    "wrong_merge_cost": ("",
+        "cost += weight;", "cost += weight + 1;"),
 }
 # Fixed, independently obvious witnesses supplement the shared regression suite.
 WITNESSES = [
@@ -30,16 +45,20 @@ def main():
     results = []
     with tempfile.TemporaryDirectory(dir=ROOT) as directory:
         folder = Path(directory)
-        for variant in ["trie", "pairwise", "interval"]:
+        for variant in VARIANTS:
             baseline = build(folder, variant)
             for title, data, want in WITNESSES:
                 assert run(baseline, data) == want, (variant, title)
-        for name, (old, new) in MUTATIONS.items():
+        mutations = [(name, "", old, new) for name, (old, new) in MUTATIONS.items()]
+        mutations.extend((name, variant, old, new)
+                         for name, (variant, old, new) in EXTRA_MUTATIONS.items())
+        for name, variant, old, new in mutations:
             assert source.count(old) == 1, name
             path = folder / (name + ".c")
             exe = folder / (name + ".exe")
             path.write_text(source.replace(old, new))
-            subprocess.run(["gcc", "-std=c99", "-O2", str(path), "-o", str(exe)], check=True)
+            flags = ["-D" + variant] if variant else []
+            subprocess.run(["gcc", "-std=c99", "-O2", *flags, str(path), "-o", str(exe)], check=True)
             witness = None
             for title, data, want in tests:
                 if run(exe, data) != want:
@@ -51,7 +70,7 @@ def main():
         writer = csv.writer(file)
         writer.writerow(["mutation", "result", "first_counterexample"])
         writer.writerows(results)
-    print(f"{len(results)}/{len(MUTATIONS)} targeted mutations detected.")
+    print(f"{len(results)}/{len(MUTATIONS) + len(EXTRA_MUTATIONS)} targeted mutations detected.")
 
 if __name__ == "__main__":
     main()

@@ -6,7 +6,7 @@ import subprocess
 import tempfile
 
 ROOT = Path(__file__).resolve().parent
-VARIANTS = ["trie", "pairwise", "interval"]
+VARIANTS = ["trie", "pairwise", "interval", "packed", "sorted"]
 
 def main():
     rows = []
@@ -26,11 +26,14 @@ def main():
             conflict = long[:-1] + [long[-2]]
             for scenario, codes, valid in [
                 ("short_valid", short, True), ("long_valid", long, True),
-                ("late_duplicate", conflict, False)]:
+                ("late_duplicate", conflict, False),
+                ("reverse_long", list(reversed(long)), True),
+                ("unequal_valid", ["1" * i + "0" for i in range(n - 1)] + ["1" * (n - 1)], True),
+                ("early_duplicate", [long[0], long[0]] + long[2:], False)]:
                 data = (str(n) + "\n" + "\n".join(codes) + "\n").encode()
                 times = [[] for _ in VARIANTS]
                 for repeat in range(7):
-                    for j in [(repeat + offset) % 3 for offset in range(3)]:
+                    for j in [(repeat + offset) % len(VARIANTS) for offset in range(len(VARIANTS))]:
                         result = subprocess.run([str(executables[j])], input=data,
                                                 capture_output=True, check=True,
                                                 timeout=20).stdout.decode().split()
