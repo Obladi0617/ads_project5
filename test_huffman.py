@@ -129,13 +129,24 @@ G 11
             rng.shuffle(entry)
             entries.append(entry)
         yield f"random {case + 1}", encode(w, entries), [expected(w, e) for e in entries]
+    w = [0] * 63
+    comb = [("1" * i + "0") for i in range(62)] + ["1" * 62]
+    entries = [list(zip(SYMBOLS, comb))]
+    # Equal weighted cost forces the prefix checker to inspect every candidate.
+    for order in [list(range(63)), list(reversed(range(63)))]:
+        duplicate = entries[0].copy()
+        duplicate[-1] = (duplicate[-1][0], duplicate[-2][1])
+        entries.append([duplicate[i] for i in order])
+    long_valid = list(zip(SYMBOLS, ["0" * 57 + format(i, "06b") for i in range(63)]))
+    entries.extend([long_valid, list(reversed(long_valid))])
+    yield "max trie depth and long shared prefix", encode(w, entries), ["Yes", "No", "No", "Yes", "Yes"]
     w = [1000] * 63
     yield "max symbols and submissions", encode(w, [reference_codes(w)] * 1000), ["Yes"] * 1000
 
 
-def build(folder, pairwise):
-    exe = folder / ("pairwise.exe" if pairwise else "trie.exe")
-    flags = ["-DPAIRWISE"] if pairwise else []
+def build(folder, variant):
+    exe = folder / (variant + ".exe")
+    flags = [] if variant == "trie" else ["-D" + variant.upper()]
     subprocess.run([os.getenv("CC", "gcc"), "-std=c99", "-O2", "-Wall", "-Wextra",
                     "-Werror", "-pedantic", *flags, str(ROOT / "huffman.c"), "-o", str(exe)],
                    check=True)
@@ -159,13 +170,13 @@ def benchmark(exes):
             data = encode(w, [invalid if scenario == "mixed" and i % 2 else valid
                               for i in range(1000)])
             want = ["No" if scenario == "mixed" and i % 2 else "Yes" for i in range(1000)]
-            timings = [[], []]
+            timings = [[], [], []]
             for i in range(11):
-                for j in [i % 2, 1 - i % 2]:
+                for j in [(i + offset) % 3 for offset in range(3)]:
                     start = time.perf_counter_ns()
                     assert run(exes[j], data) == want
                     timings[j].append((time.perf_counter_ns() - start) / 1e6)
-            for name, times in zip(["trie", "pairwise"], timings):
+            for name, times in zip(["trie", "pairwise", "interval"], timings):
                 rows.append([n, scenario, name, f"{statistics.median(times[1:]):.3f}"])
     with (ROOT / "benchmark.csv").open("w", newline="") as file:
         writer = csv.writer(file)
@@ -175,7 +186,7 @@ def benchmark(exes):
 
 if __name__ == "__main__":
     with tempfile.TemporaryDirectory(dir=ROOT) as directory:
-        exes = [build(Path(directory), mode) for mode in [False, True]]
+        exes = [build(Path(directory), mode) for mode in ["trie", "pairwise", "interval"]]
         files = submissions = 0
         for name, data, want in cases():
             for exe in exes:
@@ -183,7 +194,7 @@ if __name__ == "__main__":
                 assert got == want, (name, exe.name, got, want)
             files += 1
             submissions += len(want)
-        print(f"{files} inputs, {submissions} submissions passed for both versions.")
+        print(f"{files} inputs, {submissions} submissions passed for all three versions.")
         if "--benchmark" in sys.argv:
             benchmark(exes)
 

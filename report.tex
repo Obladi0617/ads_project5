@@ -12,7 +12,7 @@
 \end{center}
 \hrule
 \vspace{7pt}
-Group number: \rule{18mm}{0.4pt}\\
+
 {\small You Longbin (3250106392), Huang Yirui (3250104426), Chen Zhikun (3250100883)}
 
 \section{Chapter 1: Problem and algorithm}
@@ -29,17 +29,23 @@ The code strings may differ from any particular output of the Huffman algorithm.
 \textbf{Correctness.} The symbol lookup ensures each original symbol has exactly one binary code. The trie accepts exactly the prefix-free sets. Among those sets, the weighted-length comparison accepts exactly the sets that attain the optimal cost.
 
 \section{Chapter 2: Implementation and comparison}
-The implementation is in \texttt{huffman.c}. It caches code lengths, looks up frequencies by symbol, and consumes all $N$ input rows even when a submission has already failed validation. A candidate with a mismatched weighted cost skips the prefix check in both builds.
+The implementation is in \texttt{huffman.c}. It caches code lengths, looks up frequencies by symbol, and consumes all $N$ input rows even when a submission has already failed validation. A candidate with a mismatched weighted cost skips the prefix check in all three builds.
 
 Let $L$ denote the maximum code length and $S$ the sum of lengths for one submission. The heap construction by insertion and all merges take $O(N\log N)$ time and $O(N)$ space. Reading and validating a submission take $O(S)$ time. The trie variant uses $O(S)$ time for its prefix check and at most $1+NL=3970$ node slots. It initializes only nodes that it creates. The weighted cost is at most $63\cdot1000\cdot63=3{,}969{,}000$, which fits in a 32-bit signed integer on the tested compiler.
 
 The \texttt{PAIRWISE} build uses the same input parsing and optimal-cost calculation. Its prefix check compares each pair for equality over the shorter length, taking $O(N^2L)$ worst-case time and constant auxiliary space beyond the input buffers. This comparison isolates the prefix-check strategy.
 
-\clearpage
+The third build, \texttt{INTERVAL}, converts a string of length $l$ and binary value $v$ to the half-open interval
+\[
+[v\,2^{63-l},(v+1)\,2^{63-l}).
+\]
+An extension of a code occupies a subinterval of that code's interval. Dyadic intervals either are disjoint or contain one another, so a prefix conflict is exactly an overlap. Sorting by the left endpoint and checking adjacent intervals detects any overlap, including duplicate codes. The unsigned 64-bit exclusive endpoint can equal $2^{63}$ without overflowing. Total time is $O(S+N\log N)$ and auxiliary space is $O(N)$.
+
+
 \section{Chapter 3: Test report}
 \begin{tabular}{@{}p{.35\linewidth}rrl@{}}
 \toprule
-Test group & Inputs & Submissions & Both builds \\
+Test group & Inputs & Submissions & Three builds \\
 \midrule
 Official PTA example & 1 & 4 & Pass \\
 Weighted length and malformed mapping & 1 & 6 & Pass \\
@@ -47,8 +53,9 @@ Prefix order and length 63 & 1 & 3 & Pass \\
 Zero weight, non-full optimal trie & 1 & 1 & Pass \\
 Random small cases & 120 & 2400 & Pass \\
 Maximum-size batch & 1 & 1000 & Pass \\
+Long-prefix and late-conflict cases & 1 & 5 & Pass \\
 \midrule
-Total & 125 & 3414 & Pass \\
+Total & 126 & 3419 & Pass \\
 \bottomrule
 \end{tabular}
 
@@ -59,31 +66,55 @@ For random $N=2$ to $7$, the test oracle enumerates all unordered root partition
 C(T)=\sum_{i\in T}f_i + \min_{A\subset T,\;0<|A|<|T|}
 \bigl(C(A)+C(T\setminus A)\bigr).
 \]
-The singleton cost is zero. A separate lexical-sort check finds prefix conflicts by examining adjacent strings. The oracle verifies the complete output of both C builds on flipped, shuffled, and mutated codebooks. The largest test uses all 63 symbols at frequency 1000 and 1000 optimal submissions.
+The singleton cost is zero. A separate lexical-sort check finds prefix conflicts by examining adjacent strings. The oracle verifies the complete output of all three C builds on flipped, shuffled, and mutated codebooks. The largest test uses all 63 symbols at frequency 1000 and 1000 optimal submissions.
+
 
 \clearpage
 \section{Chapter 4: Performance and conclusions}
-\begin{tabular}{@{}rlrr@{}}
+\textbf{Whole-program measurements (milliseconds).} Each batch contains 1000 submissions. All builds use the same parsing, cost computation and early rejection conditions.
+
+\begin{tabular}{@{}rlrrr@{}}
 \toprule
-Symbols & Batch of 1000 & Trie (ms) & Pairwise (ms)\\
+$N$ & Input & Trie & Pairwise & Interval\\
 \midrule
-8 & All valid & 15.893 & 15.211\\
-8 & Half duplicates & 16.163 & 15.680\\
-32 & All valid & 22.305 & 23.751\\
-32 & Half duplicates & 25.929 & 26.950\\
-63 & All valid & 32.032 & 39.040\\
-63 & Half duplicates & 30.338 & 33.467\\
+8 & all valid & 53.672 & 54.992 & 61.717\\
+8 & mixed & 57.393 & 64.943 & 60.465\\
+32 & all valid & 56.523 & 58.755 & 58.054\\
+32 & mixed & 57.932 & 60.302 & 60.181\\
+63 & all valid & 72.719 & 78.234 & 66.194\\
+63 & mixed & 62.875 & 64.080 & 64.216\\
 \bottomrule
 \end{tabular}
 
-Windows, GCC 15.2.0, C99, \texttt{-O2}. For each condition, the same input is passed to both builds. Invalid entries duplicate a code of equal length so that the weighted cost is unchanged. The experiment alternates run order, discards one warm-up per build, and reports the median of ten runs. Timings include process startup, I/O, and output comparison in the harness.
+Windows, GCC 15.2.0, C99, \texttt{-O2}. Alternating the three variants' order reduces systematic ordering effects. One warm-up is discarded per build; the median of ten runs includes process startup, I/O and Python output validation. These values supersede the earlier two-version measurements and depend on machine load.
 
-The pairwise scan was slightly faster at $N=8$ on this machine. At $N=63$ with all entries valid, the trie took about 18\% less elapsed time. With duplicate codes, a pairwise scan can stop before testing all pairs, and the measured gap narrows. These whole-program measurements depend on startup overhead and the chosen batches. The trie is the default because it scales linearly with the total code length.
+\textbf{Prefix-check measurements (nanoseconds per call).} The C harness reads each codebook before starting QueryPerformanceCounter. It executes 100 warm-ups followed by 20,000 calls through a volatile function pointer, retaining a volatile accepted count. The Python driver checks that count and reports the median of seven batches with rotated run order. Input parsing, process startup, weighted-cost filtering and Python verification are excluded from this timer.
+
+\begin{tabular}{@{}rlrrr@{}}
+\toprule
+$N$ & Input & Trie & Pairwise & Interval\\
+\midrule
+8 & short valid & 38.415 & 74.755 & 55.805\\
+8 & long valid & 1090.480 & 144.665 & 247.565\\
+8 & late duplicate & 1065.325 & 145.455 & 262.070\\
+32 & short valid & 320.135 & 1271.920 & 303.660\\
+32 & long valid & 4176.090 & 2073.900 & 988.045\\
+32 & late duplicate & 4140.985 & 2101.000 & 1006.665\\
+63 & short valid & 725.670 & 4401.615 & 704.730\\
+63 & long valid & 8181.230 & 6888.160 & 2099.930\\
+63 & late duplicate & 8207.365 & 6995.660 & 2120.475\\
+\bottomrule
+\end{tabular}
+
+Short valid strings have equal lengths $\lceil\log_2N\rceil$. Long strings prepend zeros to reach 63 bits. Late-duplicate cases replace the final string with its predecessor, keeping code lengths unchanged. These synthetic long codebooks are useful for isolating the checker; they need not be optimal for strictly positive frequencies. The zero-frequency regression inputs exercise such codebooks through the complete verifier.
+
+The results show that the best strategy depends on input shape. Trie traversal benefits short codebooks and avoids all-pairs comparison. Interval sorting processes each code once before sorting and performs well on long common prefixes. Pairwise comparison can be competitive for small alphabets because library comparisons are cheap. The default remains Trie for its linear worst-case bound in total code length. The interval build provides a compact alternative, with the extra $N\log N$ sorting term. No universal speed ranking follows from these small, machine-dependent measurements.
 
 \subsection*{References}
 PTA, \emph{ZJU ADS Project 5, problem 8-1: Huffman Codes}.\\
 D. A. Huffman, \emph{A Method for the Construction of Minimum-Redundancy Codes}, 1952.
 
+\clearpage
 \subsection*{Appendix: Reproduction}
 Compile the default trie build as shown below.
 With Python 3.10+ and GCC on the path, run:
@@ -91,12 +122,10 @@ With Python 3.10+ and GCC on the path, run:
 gcc -std=c99 -O2 huffman.c -o huffman.exe
 python test_huffman.py
 python test_huffman.py --benchmark
+python benchmark_prefix.py
 \end{verbatim}
-The second command also refreshes \texttt{benchmark.csv}.
+The third command also refreshes \texttt{benchmark.csv}.
+Compile with \texttt{-DPAIRWISE} or \texttt{-DINTERVAL} for the alternative checkers.
+The prefix harness uses Windows QueryPerformanceCounter and requires Windows; the verifier and correctness tests use standard C99 and Python.
+
 \end{document}
-
-
-
-
-
-

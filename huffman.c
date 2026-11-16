@@ -1,6 +1,8 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
+#include <stdint.h>
+#include <stdlib.h>
 
 enum { MAX_SYMBOLS = 63, MAX_BITS = 63, MAX_NODES = 1 + MAX_SYMBOLS * MAX_BITS };
 
@@ -53,7 +55,39 @@ static int optimal_cost(MinHeap *heap)
     return cost;
 }
 
-#ifdef PAIRWISE
+#if defined(INTERVAL)
+typedef struct {
+    uint64_t start;
+    uint64_t end;
+} CodeInterval;
+
+static int compare_intervals(const void *left, const void *right)
+{
+    const CodeInterval *a = left;
+    const CodeInterval *b = right;
+    return (a->start > b->start) - (a->start < b->start);
+}
+
+static bool prefix_free(char codes[][MAX_BITS + 1], const size_t lengths[], int n)
+{
+    CodeInterval intervals[MAX_SYMBOLS];
+    for (int i = 0; i < n; ++i) {
+        uint64_t value = 0;
+        for (size_t j = 0; j < lengths[i]; ++j)
+            value = (value << 1) | (uint64_t)(codes[i][j] - '0');
+        unsigned shift = MAX_BITS - (unsigned)lengths[i];
+        intervals[i].start = value << shift;
+        /* The exclusive endpoint can equal 2^63, which fits in uint64_t. */
+        intervals[i].end = (value + UINT64_C(1)) << shift;
+    }
+    qsort(intervals, (size_t)n, sizeof intervals[0], compare_intervals);
+    for (int i = 1; i < n; ++i) {
+        if (intervals[i].start < intervals[i - 1].end)
+            return false;
+    }
+    return true;
+}
+#elif defined(PAIRWISE)
 /* Experimental baseline. Equality also counts as a prefix conflict. */
 static bool prefix_free(char codes[][MAX_BITS + 1], const size_t lengths[], int n)
 {
